@@ -575,10 +575,9 @@ async function savePekerjaan() {
   let wibMulai = '', wibSelesai = '';
 
   if (editJobId) {
-    // Edit: pertahankan jam dari data lama
-    const oldJob = jobs.find(j => String(j.id) === String(editJobId));
-    wibMulai   = oldJob?.wibMulai   || '';
-    wibSelesai = oldJob?.wibSelesai || '';
+    // Edit: ambil dari input jam mulai/selesai yang baru (bisa diubah user)
+    wibMulai   = document.getElementById('edit-wib-mulai')?.value   || '';
+    wibSelesai = document.getElementById('edit-wib-selesai')?.value || '';
   } else if (timerMode === 'wib') {
     // Mode WIB: ambil dari hidden input yang diisi tombol/input manual
     wibMulai   = document.getElementById('wib-mulai')?.value   || '';
@@ -631,6 +630,20 @@ async function savePekerjaan() {
   }
 }
 
+// Hitung durasi otomatis saat edit jam mulai/selesai diubah
+function editHitungDurasi() {
+  const mulai   = document.getElementById('edit-wib-mulai')?.value   || '';
+  const selesai = document.getElementById('edit-wib-selesai')?.value || '';
+  if (!mulai || !selesai) return; // biarkan durasi manual jika salah satu kosong
+
+  const [mh, mm] = mulai.split(':').map(Number);
+  const [sh, sm] = selesai.split(':').map(Number);
+  let diff = (sh * 60 + sm) - (mh * 60 + mm);
+  if (diff < 0) diff += 24 * 60;
+
+  document.getElementById('inp-durasi-edit').value = fmtSec(diff * 60);
+}
+
 // ==================== EDIT ====================
 function openEdit(id) {
   const j = jobs.find(j => String(j.id) === String(id));
@@ -673,16 +686,11 @@ function openEdit(id) {
     document.getElementById('edit-durasi-wrap').style.display = 'block';
     document.getElementById('inp-durasi-edit').value = fmtSec(j.durasi || 0);
 
-    const jamInfo = document.getElementById('edit-jam-info');
-    if (jamInfo) {
-      if (j.wibMulai) {
-        const jamTeks = j.wibSelesai ? `${j.wibMulai} – ${j.wibSelesai}` : `${j.wibMulai} – ...`;
-        jamInfo.textContent = `⏰ Jam tercatat: ${jamTeks}`;
-        jamInfo.style.display = 'block';
-      } else {
-        jamInfo.style.display = 'none';
-      }
-    }
+    // Isi jam mulai & selesai jika ada
+    const editMulai   = document.getElementById('edit-wib-mulai');
+    const editSelesai = document.getElementById('edit-wib-selesai');
+    if (editMulai)   editMulai.value   = j.wibMulai   || '';
+    if (editSelesai) editSelesai.value = j.wibSelesai || '';
 
     document.getElementById('btn-batal-edit').style.display = 'inline-flex';
     document.getElementById('form-title-label').textContent  = '✏️ Edit Pekerjaan';
@@ -705,8 +713,11 @@ function cancelEdit() {
   document.getElementById('sw-block').style.display  = timerMode === 'stopwatch' ? 'block' : 'none';
   document.getElementById('wib-block').style.display = timerMode === 'wib'        ? 'block' : 'none';
 
-  const jamInfo = document.getElementById('edit-jam-info');
-  if (jamInfo) jamInfo.style.display = 'none';
+  // Bersihkan field edit jam
+  const editMulai   = document.getElementById('edit-wib-mulai');
+  const editSelesai = document.getElementById('edit-wib-selesai');
+  if (editMulai)   editMulai.value   = '';
+  if (editSelesai) editSelesai.value = '';
 
   document.getElementById('edit-durasi-wrap').style.display = 'none';
   document.getElementById('btn-batal-edit').style.display   = 'none';
