@@ -322,8 +322,10 @@ function hitungDurasiWIB() {
 }
 
 function getDurasi() {
-  // Edit mode: selalu ambil dari input manual
-  if (editJobId) {
+  // Edit mode: ambil dari input manual (cek editJobId ATAU wrapper masih tampil)
+  const editWrap = document.getElementById('edit-durasi-wrap');
+  const isEditing = editJobId || (editWrap && editWrap.style.display === 'block');
+  if (isEditing) {
     const val = document.getElementById('inp-durasi-edit').value.trim();
     return parseDurasi(val);
   }
@@ -449,26 +451,13 @@ function saveJobsLocal(jobsList) {
 // ── Migrasi HANYA untuk data lama yang belum punya field baru ──
 function migrasiJam(jobsList) {
   const tempatValid = ['Dirumah', 'DiKantor'];
-
   return jobsList.map(j => {
-    // Backward compat: data lama mungkin masih punya field 'tahun'
-    // Prioritas: j.tempat → j.tahun (jika valid) → 'Dirumah'
     const rawTempat = j.tempat || j.tahun || '';
     let tempat = String(rawTempat).trim();
     if (!tempatValid.includes(tempat)) tempat = 'Dirumah';
-
-    if (j.wibMulai && j.wibSelesai) {
-      return { ...j, tempat };
-    }
-    try {
-      const selesai    = new Date(j.createdAt || Date.now());
-      const utcMs      = selesai.getTime() + selesai.getTimezoneOffset() * 60000;
-      const wibSelesai = new Date(utcMs + 7 * 3600000);
-      const wibMulai   = new Date(wibSelesai.getTime() - (j.durasi || 0) * 1000);
-      return { ...j, tempat, wibMulai: wibStr(wibMulai), wibSelesai: wibStr(wibSelesai) };
-    } catch (_) {
-      return { ...j, tempat };
-    }
+    // Pertahankan wibMulai/wibSelesai apa adanya — tidak rekayasa dari createdAt
+    // agar jam yang tampil di laporan sesuai dengan yang diinput user
+    return { ...j, tempat };
   });
 }
 
@@ -500,7 +489,7 @@ async function loadJobs() {
     } catch(_) {}
   }
 
-  // Fallback localStorage — baca langsung, migrasi ringan
+  // Fallback localStorage — baca langsung, hanya normalisasi tempat
   const raw = JSON.parse(localStorage.getItem(LOCAL_JOBS_KEY()) || '[]');
 
   jobs = raw.map(j => {
@@ -509,18 +498,8 @@ async function loadJobs() {
     const tempat = ['Dirumah', 'DiKantor'].includes(String(rawTempat).trim())
       ? String(rawTempat).trim()
       : 'Dirumah';
-
-    if (j.wibMulai && j.wibSelesai) return { ...j, tempat };
-
-    try {
-      const selesai    = new Date(j.createdAt || Date.now());
-      const utcMs      = selesai.getTime() + selesai.getTimezoneOffset() * 60000;
-      const wibSelesai = new Date(utcMs + 7 * 3600000);
-      const wibMulai   = new Date(wibSelesai.getTime() - (j.durasi || 0) * 1000);
-      return { ...j, tempat, wibMulai: wibStr(wibMulai), wibSelesai: wibStr(wibSelesai) };
-    } catch (_) {
-      return { ...j, tempat };
-    }
+    // Pertahankan wibMulai/wibSelesai apa adanya — tidak rekayasa dari createdAt
+    return { ...j, tempat };
   });
 
   renderDash();
@@ -582,14 +561,8 @@ async function savePekerjaan() {
   if (!nama) { showToast('Nama pekerjaan wajib diisi','error'); return; }
 
   const durasi = getDurasi();
-  if (!durasi || durasi <= 0) {
-    if (editJobId) {
-      showToast('Durasi tidak valid. Gunakan format HH:MM:SS (contoh: 01:30:00)', 'error');
-    } else if (timerMode === 'stopwatch') {
-      showToast('Jalankan stopwatch terlebih dahulu', 'error');
-    } else {
-      showToast('Klik tombol Mulai lalu Selesai terlebih dahulu', 'error');
-    }
+  if (durasi === null || durasi === undefined || isNaN(durasi)) {
+    showToast('Durasi tidak valid. Gunakan format HH:MM:SS', 'error');
     return;
   }
 
@@ -598,25 +571,21 @@ async function savePekerjaan() {
     swStop();
   }
 
-  // ── Hitung jam mulai & selesai ──
+  // ── Jam mulai & selesai ──
   let wibMulai = '', wibSelesai = '';
 
   if (editJobId) {
-    // Edit: pertahankan data jam lama
+    // Edit: pertahankan jam dari data lama
     const oldJob = jobs.find(j => String(j.id) === String(editJobId));
     wibMulai   = oldJob?.wibMulai   || '';
     wibSelesai = oldJob?.wibSelesai || '';
   } else if (timerMode === 'wib') {
-    // Mode WIB: ambil dari hidden input yang diisi tombol Mulai/Selesai
+    // Mode WIB: ambil dari hidden input yang diisi tombol/input manual
     wibMulai   = document.getElementById('wib-mulai')?.value   || '';
     wibSelesai = document.getElementById('wib-selesai')?.value || '';
-  } else {
-    // Mode Stopwatch: hitung mundur dari sekarang berdasarkan durasi
-    const selesaiWIB = getWIBNow();
-    const mulaiWIB   = new Date(selesaiWIB.getTime() - durasi * 1000);
-    wibSelesai = wibStr(selesaiWIB);
-    wibMulai   = wibStr(mulaiWIB);
   }
+  // Mode stopwatch: biarkan wibMulai/wibSelesai kosong,
+  // tampilkan durasi saja di laporan (lebih akurat dari rekayasa jam)
   const job = {
     id: editJobId || ('JOB_' + Date.now()),
     userId: plSession.id,
@@ -780,14 +749,14 @@ function actionBtns(id) {
 function renderRow(j) {
   const icon      = TEMPAT_ICON[j.tempat]  || '';
   const label     = TEMPAT_LABEL[j.tempat] || j.tempat || '—';
-  const tempatStr  = `${icon} ${label}`.trim();
+  const tempatStr = `${icon} ${label}`.trim();
 
-  // Jam kerja
+  // Jam kerja: tampilkan jam jika ada (mode WIB), atau durasi saja (mode stopwatch)
   const jamStr = (j.wibMulai && j.wibSelesai)
     ? `${j.wibMulai} – ${j.wibSelesai}`
     : j.wibMulai
-      ? `${j.wibMulai} – ...`
-      : '—';
+      ? `${j.wibMulai} – (belum selesai)`
+      : fmtSec(j.durasi); // stopwatch: tampilkan total durasi
 
   return `<tr>
     <td title="${j.nama}">${j.nama}</td>
