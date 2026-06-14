@@ -655,6 +655,9 @@ function openEdit(id) {
 
   // Set nilai form di tick berikutnya agar tidak tertimpa reset dari cancelEdit
   setTimeout(() => {
+    // PENTING: restore editJobId karena cancelEdit() sudah mereset ke null
+    editJobId = id;
+
     document.getElementById('inp-nama').value = j.nama;
     document.getElementById('inp-tgl').value  = j.tgl;
     document.getElementById('inp-hari').value = j.hari;
@@ -762,18 +765,23 @@ function renderRow(j) {
   const label     = TEMPAT_LABEL[j.tempat] || j.tempat || '—';
   const tempatStr = `${icon} ${label}`.trim();
 
-  // Jam kerja: tampilkan jam jika ada (mode WIB), atau durasi saja (mode stopwatch)
-  const jamStr = (j.wibMulai && j.wibSelesai)
-    ? `${j.wibMulai} – ${j.wibSelesai}`
-    : j.wibMulai
-      ? `${j.wibMulai} – (belum selesai)`
-      : fmtSec(j.durasi); // stopwatch: tampilkan total durasi
+  // Jam kerja: prioritaskan jam WIB, fallback ke durasi
+  let jamStr, jamStyle = '';
+  if (j.wibMulai && j.wibSelesai) {
+    jamStr = `${j.wibMulai} – ${j.wibSelesai}`;
+  } else if (j.wibMulai) {
+    jamStr = `${j.wibMulai} – (belum)`;
+  } else {
+    // Stopwatch mode — tampilkan durasi dengan label
+    jamStr  = fmtSec(j.durasi || 0);
+    jamStyle= 'color:var(--gray-400);font-size:11px';
+  }
 
   return `<tr>
     <td title="${j.nama}">${j.nama}</td>
     <td>${katBadge(j.kategori)}</td>
     <td>${fmtTgl(j.tgl)}</td>
-    <td style="font-family:var(--mono);font-size:12px;white-space:nowrap">${jamStr}</td>
+    <td style="font-family:var(--mono);font-size:12px;white-space:nowrap;${jamStyle}">${jamStr}</td>
     <td style="font-family:var(--mono);font-size:12px">${fmtSec(j.durasi)}</td>
     <td style="font-size:12px;white-space:nowrap">${tempatStr}</td>
     <td>${actionBtns(j.id)}</td>
