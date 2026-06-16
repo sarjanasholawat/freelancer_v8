@@ -322,12 +322,16 @@ function hitungDurasiWIB() {
 }
 
 function getDurasi() {
-  // Edit mode: ambil dari input manual (cek editJobId ATAU wrapper masih tampil)
+  // Edit mode: ambil dari hidden input yang diisi editHitungDurasi
   const editWrap = document.getElementById('edit-durasi-wrap');
   const isEditing = editJobId || (editWrap && editWrap.style.display === 'block');
   if (isEditing) {
-    const val = document.getElementById('inp-durasi-edit').value.trim();
-    return parseDurasi(val);
+    const hidden = document.getElementById('inp-durasi-edit');
+    const val    = hidden ? hidden.value.trim() : '';
+    // Nilai bisa berupa angka detik (dari editHitungDurasi) atau format HH:MM:SS lama
+    const asInt = parseInt(val);
+    if (!isNaN(asInt) && String(asInt) === val) return asInt; // angka detik
+    return parseDurasi(val); // format HH:MM:SS
   }
   // Stopwatch mode: ambil swSec (bisa running, paused, atau stopped)
   if (timerMode === 'stopwatch') return swSec;
@@ -455,9 +459,10 @@ function migrasiJam(jobsList) {
     const rawTempat = j.tempat || j.tahun || '';
     let tempat = String(rawTempat).trim();
     if (!tempatValid.includes(tempat)) tempat = 'Dirumah';
-    // Pertahankan wibMulai/wibSelesai apa adanya — tidak rekayasa dari createdAt
-    // agar jam yang tampil di laporan sesuai dengan yang diinput user
-    return { ...j, tempat };
+    // Normalisasi wibMulai/wibSelesai: konversi ISO string ke HH:MM
+    const wibMulai   = parseJam(j.wibMulai);
+    const wibSelesai = parseJam(j.wibSelesai);
+    return { ...j, tempat, wibMulai, wibSelesai };
   });
 }
 
@@ -493,13 +498,14 @@ async function loadJobs() {
   const raw = JSON.parse(localStorage.getItem(LOCAL_JOBS_KEY()) || '[]');
 
   jobs = raw.map(j => {
-    // Backward compat: coba j.tempat dulu, fallback ke j.tahun lama
     const rawTempat = j.tempat || j.tahun || '';
     const tempat = ['Dirumah', 'DiKantor'].includes(String(rawTempat).trim())
       ? String(rawTempat).trim()
       : 'Dirumah';
-    // Pertahankan wibMulai/wibSelesai apa adanya — tidak rekayasa dari createdAt
-    return { ...j, tempat };
+    // Normalisasi wibMulai/wibSelesai ke HH:MM (handle ISO string lama)
+    const wibMulai   = parseJam(j.wibMulai);
+    const wibSelesai = parseJam(j.wibSelesai);
+    return { ...j, tempat, wibMulai, wibSelesai };
   });
 
   renderDash();
@@ -634,14 +640,23 @@ async function savePekerjaan() {
 function editHitungDurasi() {
   const mulai   = document.getElementById('edit-wib-mulai')?.value   || '';
   const selesai = document.getElementById('edit-wib-selesai')?.value || '';
-  if (!mulai || !selesai) return; // biarkan durasi manual jika salah satu kosong
+  const display = document.getElementById('edit-durasi-display');
+  const hidden  = document.getElementById('inp-durasi-edit');
+
+  if (!mulai || !selesai) {
+    if (display) display.textContent = '00:00:00';
+    if (hidden)  hidden.value = '0';
+    return;
+  }
 
   const [mh, mm] = mulai.split(':').map(Number);
   const [sh, sm] = selesai.split(':').map(Number);
   let diff = (sh * 60 + sm) - (mh * 60 + mm);
   if (diff < 0) diff += 24 * 60;
+  const totalSec = diff * 60;
 
-  document.getElementById('inp-durasi-edit').value = fmtSec(diff * 60);
+  if (display) display.textContent = fmtSec(totalSec);
+  if (hidden)  hidden.value = String(totalSec); // simpan dalam detik
 }
 
 // ==================== EDIT ====================
@@ -687,13 +702,17 @@ function openEdit(id) {
     document.getElementById('wib-block').style.display = 'none';
 
     document.getElementById('edit-durasi-wrap').style.display = 'block';
-    document.getElementById('inp-durasi-edit').value = fmtSec(j.durasi || 0);
 
     // Isi jam mulai & selesai jika ada
     const editMulai   = document.getElementById('edit-wib-mulai');
     const editSelesai = document.getElementById('edit-wib-selesai');
+    const editHidden  = document.getElementById('inp-durasi-edit');
+    const editDisplay = document.getElementById('edit-durasi-display');
+
     if (editMulai)   editMulai.value   = j.wibMulai   || '';
     if (editSelesai) editSelesai.value = j.wibSelesai || '';
+    if (editHidden)  editHidden.value  = String(j.durasi || 0);
+    if (editDisplay) editDisplay.textContent = fmtSec(j.durasi || 0);
 
     document.getElementById('btn-batal-edit').style.display = 'inline-flex';
     document.getElementById('form-title-label').textContent  = '✏️ Edit Pekerjaan';
@@ -719,8 +738,12 @@ function cancelEdit() {
   // Bersihkan field edit jam
   const editMulai   = document.getElementById('edit-wib-mulai');
   const editSelesai = document.getElementById('edit-wib-selesai');
+  const editDisplay = document.getElementById('edit-durasi-display');
+  const editHidden  = document.getElementById('inp-durasi-edit');
   if (editMulai)   editMulai.value   = '';
   if (editSelesai) editSelesai.value = '';
+  if (editDisplay) editDisplay.textContent = '00:00:00';
+  if (editHidden)  editHidden.value  = '';
 
   document.getElementById('edit-durasi-wrap').style.display = 'none';
   document.getElementById('btn-batal-edit').style.display   = 'none';
@@ -760,19 +783,39 @@ function actionBtns(id) {
     <button class="btn-icon danger" onclick="openHapus('${id}')" title="Hapus"><svg viewBox="0 0 16 16" fill="none"><path d="M3 5h10M6 5V3h4v2M6 8v5M10 8v5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></button>
   </div>`;
 }
+// Normalize jam ke format HH:MM — handle ISO string, HH:MM, atau nilai aneh
+function parseJam(val) {
+  if (!val) return '';
+  const s = String(val).trim();
+  // Sudah HH:MM atau HH:MM:SS
+  if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)) return s.slice(0, 5);
+  // ISO string (misal 1899-12-30T01:52:48.000Z atau 2024-01-15T08:00:00.000Z)
+  try {
+    const d = new Date(s);
+    if (!isNaN(d)) {
+      // Ambil jam UTC karena data lama disimpan dalam UTC
+      const h = String(d.getUTCHours()).padStart(2,'0');
+      const m = String(d.getUTCMinutes()).padStart(2,'0');
+      return `${h}:${m}`;
+    }
+  } catch(_) {}
+  return '';
+}
+
 function renderRow(j) {
   const icon      = TEMPAT_ICON[j.tempat]  || '';
   const label     = TEMPAT_LABEL[j.tempat] || j.tempat || '—';
   const tempatStr = `${icon} ${label}`.trim();
 
   // Jam kerja: prioritaskan jam WIB, fallback ke durasi
+  const mulaiStr   = parseJam(j.wibMulai);
+  const selesaiStr = parseJam(j.wibSelesai);
   let jamStr, jamStyle = '';
-  if (j.wibMulai && j.wibSelesai) {
-    jamStr = `${j.wibMulai} – ${j.wibSelesai}`;
-  } else if (j.wibMulai) {
-    jamStr = `${j.wibMulai} – (belum)`;
+  if (mulaiStr && selesaiStr) {
+    jamStr = `${mulaiStr} – ${selesaiStr}`;
+  } else if (mulaiStr) {
+    jamStr = `${mulaiStr} – (belum)`;
   } else {
-    // Stopwatch mode — tampilkan durasi dengan label
     jamStr  = fmtSec(j.durasi || 0);
     jamStyle= 'color:var(--gray-400);font-size:11px';
   }
@@ -1078,8 +1121,8 @@ function renderLaporan() {
   document.getElementById('print-tbody').innerHTML = fl.length
     ? fl.map((j, i) => {
         const durSec     = j.durasi || 0;
-        const jamMulai   = j.wibMulai   || '';
-        const jamSelesai = j.wibSelesai || '';
+        const jamMulai   = parseJam(j.wibMulai);
+        const jamSelesai = parseJam(j.wibSelesai);
         const jamStr     = (jamMulai && jamSelesai)
           ? `${jamMulai} – ${jamSelesai}`
           : jamMulai ? `${jamMulai} – ...` : fmtSec(durSec);
