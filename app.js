@@ -783,19 +783,20 @@ function actionBtns(id) {
     <button class="btn-icon danger" onclick="openHapus('${id}')" title="Hapus"><svg viewBox="0 0 16 16" fill="none"><path d="M3 5h10M6 5V3h4v2M6 8v5M10 8v5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></button>
   </div>`;
 }
-// Normalize jam ke format HH:MM — handle ISO string, HH:MM, atau nilai aneh
+// Normalize jam ke format HH:MM WIB — handle ISO string, HH:MM, atau nilai aneh
 function parseJam(val) {
   if (!val) return '';
   const s = String(val).trim();
-  // Sudah HH:MM atau HH:MM:SS
+  // Sudah format HH:MM atau HH:MM:SS — langsung pakai
   if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)) return s.slice(0, 5);
-  // ISO string (misal 1899-12-30T01:52:48.000Z atau 2024-01-15T08:00:00.000Z)
+  // ISO string — konversi ke WIB (UTC+7)
   try {
     const d = new Date(s);
     if (!isNaN(d)) {
-      // Ambil jam UTC karena data lama disimpan dalam UTC
-      const h = String(d.getUTCHours()).padStart(2,'0');
-      const m = String(d.getUTCMinutes()).padStart(2,'0');
+      const wibMs = d.getTime() + 7 * 3600000;
+      const wib   = new Date(wibMs);
+      const h = String(wib.getUTCHours()).padStart(2,'0');
+      const m = String(wib.getUTCMinutes()).padStart(2,'0');
       return `${h}:${m}`;
     }
   } catch(_) {}
