@@ -200,9 +200,11 @@ function startWIBClock() {
   stopWIBClock();
   function tick() {
     const wib = getWIBNow();
+    const h   = String(wib.getUTCHours()).padStart(2,'0');
+    const m   = String(wib.getUTCMinutes()).padStart(2,'0');
+    const s   = String(wib.getUTCSeconds()).padStart(2,'0');
     const el  = document.getElementById('jam-wib-live');
-    if (el) el.textContent = fmtSec(wib.getHours()*3600 + wib.getMinutes()*60 + wib.getSeconds());
-    // Update durasi live jika belum ada jam selesai
+    if (el) el.textContent = `${h}:${m}:${s}`;
     const selesai = document.getElementById('wib-selesai')?.value;
     if (!selesai) hitungDurasiWIB();
   }
@@ -222,7 +224,8 @@ function getWIBNow() {
 }
 
 function wibStr(wib) {
-  return String(wib.getHours()).padStart(2,'0') + ':' + String(wib.getMinutes()).padStart(2,'0');
+  // getWIBNow() menggeser waktu ke UTC, jadi pakai getUTCHours
+  return String(wib.getUTCHours()).padStart(2,'0') + ':' + String(wib.getUTCMinutes()).padStart(2,'0');
 }
 
 // Sinkronkan semua elemen WIB (hidden input, time input, durasi)
@@ -313,9 +316,9 @@ function hitungDurasiWIB() {
     totalSec = diff * 60;
   } else {
     const wib = getWIBNow();
-    let diff = (wib.getHours() * 60 + wib.getMinutes()) - (mh * 60 + mm);
+    let diff = (wib.getUTCHours() * 60 + wib.getUTCMinutes()) - (mh * 60 + mm);
     if (diff < 0) diff = 0;
-    totalSec = diff * 60 + wib.getSeconds();
+    totalSec = diff * 60 + wib.getUTCSeconds();
   }
   const dur = document.getElementById('wib-durasi-display');
   if (dur) dur.textContent = fmtSec(Math.max(0, totalSec));
